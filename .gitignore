@@ -14,3 +14,6 @@ AGENTS.override.md
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+# Release zips
+dist/
