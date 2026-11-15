@@ -80,6 +80,12 @@ function UI.Slash(msg)
         ns.Core.Debug()
     elseif cmd == "restore" then
         if ns.Core.RestorePending() == false then ns.Core.Print("nothing to restore.") end
+    elseif cmd == "forget" then
+        if ns.Core.Forget() then
+            ns.Core.Print("dropped the pending restore; settings stay as they are now.")
+        else
+            ns.Core.Print("nothing to forget.")
+        end
     elseif cmd == "reset" then
         UI.ResetPosition()
         ns.Core.Print("button position reset.")
@@ -87,6 +93,7 @@ function UI.Slash(msg)
         ns.Core.Print("/photo - take a clean screenshot")
         ns.Core.Print("/photo debug - list name CVars on this client and their values")
         ns.Core.Print("/photo restore - put back settings from an interrupted photo")
+        ns.Core.Print("/photo forget - give up on a restore that keeps failing")
         ns.Core.Print("/photo reset - move the button back to its default spot")
     end
 end

@@ -87,10 +87,16 @@ local function forSession(id, fn)
     end
 end
 
+local function cameraPending(s)
+    return s.zoomChanged and not s.zoomRestored
+end
+
+-- Saves what is still needed to undo this session, so /reload, a crash or a later
+-- /photo restore can finish the job. UI visibility is not saved: a reload always shows it.
 local function persistPending(s)
     local copy = {}
     for name, value in pairs(s.cvars) do copy[name] = value end
-    db().pendingRestore = { cvars = copy }
+    db().pendingRestore = { cvars = copy, zoom = cameraPending(s) and s.zoom or nil }
 end
 
 local function newSession(cvars)
@@ -111,6 +117,21 @@ local function newSession(cvars)
         table.sort(s.order)
     end
     return s
+end
+
+-- Rebuilds a session from SavedVariables (after /reload, crash or logout).
+local function sessionFromPending(pending)
+    local s = newSession(pending.cvars)
+    if type(pending.zoom) == "number" then
+        s.zoom = pending.zoom
+        s.zoomChanged = true
+    end
+    return s
+end
+
+local function hasPending(pending)
+    return pending ~= nil and ((pending.cvars ~= nil and next(pending.cvars) ~= nil)
+        or type(pending.zoom) == "number")
 end
 
 ---------------------------------------------------------------------------
@@ -210,6 +231,7 @@ local function prepare()
     -- 3. first person
     s.zoom = GetCameraZoom()
     s.zoomChanged = true
+    persistPending(s) -- now includes the saved zoom
     CameraZoomIn(Config.firstPersonZoomIn)
 
     -- 4. let it settle, then shoot
@@ -221,12 +243,13 @@ end
 ---------------------------------------------------------------------------
 
 local function restoreCamera(s)
-    if not s.zoomChanged or s.zoomRestored then return end
-    s.zoomRestored = true
+    if not cameraPending(s) then return end
     -- Zoom fully in again first so the result does not depend on whether the earlier zoom-in
     -- animation finished; from first person, zooming out by the saved distance is exact.
+    -- This also makes a retry after a partial failure exact.
     CameraZoomIn(Config.firstPersonZoomIn)
     if s.zoom and s.zoom > 0 then CameraZoomOut(s.zoom) end
+    s.zoomRestored = true -- only once both calls succeeded; an error leaves it pending
 end
 
 local function restoreFrameAlpha(s)
@@ -266,10 +289,13 @@ function Core.Restore()
     safe(restoreFrameAlpha, s)
 
     if InCombatLockdown() then
+        persistPending(s)
         waitForCombatEnd()
         return
     end
 
+    -- Each part (CVar, UI, camera) counts as done only when it actually holds the original
+    -- again; anything else stays pending and is retried by the next Restore() call.
     local failed = {}
     for _, name in ipairs(s.order) do
         local orig = s.cvars[name]
@@ -281,9 +307,20 @@ function Core.Restore()
         safe(UIParent.Show, UIParent)
         if not UIParent:IsShown() then failed[#failed + 1] = "UIParent" end
     end
+    if cameraPending(s) then failed[#failed + 1] = "camera zoom" end
 
-    if #failed > 0 and inCombat() then
-        waitForCombatEnd() -- writes were likely blocked by combat; retry when it ends
+    if #failed > 0 then
+        -- Keep the session and its SavedVariables copy so the combat-end retry,
+        -- /photo restore and the next login can still finish it.
+        persistPending(s)
+        if inCombat() then
+            waitForCombatEnd() -- writes were likely blocked by combat; retry when it ends
+        else
+            Core.state = "restoring"
+            events:RegisterEvent("PLAYER_REGEN_ENABLED") -- also retry after the next fight
+            Core.Print("could not restore: " .. table.concat(failed, ", ")
+                .. ". Try /photo restore (or /photo forget to give up).")
+        end
         return
     end
 
@@ -291,17 +328,20 @@ function Core.Restore()
     Core.state = "idle"
     events:UnregisterEvent("PLAYER_REGEN_ENABLED")
     events:UnregisterEvent("PLAYER_REGEN_DISABLED")
+    db().pendingRestore = nil
+end
 
-    if #failed > 0 then
-        local left = {}
-        for _, name in ipairs(failed) do
-            if s.cvars[name] then left[name] = s.cvars[name] end
-        end
-        db().pendingRestore = next(left) and { cvars = left } or nil
-        Core.Print("could not restore: " .. table.concat(failed, ", ") .. ". Try /photo restore.")
-    else
-        db().pendingRestore = nil
-    end
+-- Drops any pending restore without applying it. Escape hatch for a part that never
+-- restores, which would otherwise block new photos forever.
+function Core.Forget()
+    local had = session ~= nil or hasPending(db().pendingRestore)
+    if session then restoreFrameAlpha(session) end
+    session = nil
+    Core.state = "idle"
+    events:UnregisterEvent("PLAYER_REGEN_ENABLED")
+    events:UnregisterEvent("PLAYER_REGEN_DISABLED")
+    db().pendingRestore = nil
+    return had
 end
 
 ---------------------------------------------------------------------------
@@ -311,7 +351,7 @@ end
 function Core.Start()
     if Core.state ~= "idle" then
         if Core.state == "restoring" then
-            Core.Print("still waiting for combat to end to restore your settings.")
+            Core.Print("the last photo's settings are not fully restored yet - they come back when combat ends, or try /photo restore.")
         else
             Core.Print("already taking a photo.")
         end
@@ -320,6 +360,11 @@ function Core.Start()
     if InCombatLockdown() then
         Core.Print("not available in combat")
         return false
+    end
+    -- Never snapshot on top of an unfinished restore: the "originals" would be our hide values.
+    if hasPending(db().pendingRestore) then
+        Core.RestorePending()
+        if Core.state ~= "idle" or hasPending(db().pendingRestore) then return false end
     end
     session = newSession()
     Core.state = "running"
@@ -344,11 +389,11 @@ function Core.RestorePending()
         return
     end
     local pending = db().pendingRestore
-    if not pending or not pending.cvars or not next(pending.cvars) then
+    if not hasPending(pending) then
         db().pendingRestore = nil
         return false
     end
-    session = newSession(pending.cvars)
+    session = sessionFromPending(pending)
     Core.state = "running"
     Core.Restore()
     if Core.state == "idle" and not db().pendingRestore then
@@ -414,9 +459,9 @@ function Core.OnEvent(event, ...)
         events:UnregisterEvent("ADDON_LOADED")
         db()
         if ns.UI and ns.UI.Create then ns.UI.Create() end
-        if db().pendingRestore then
+        if hasPending(db().pendingRestore) then
             if InCombatLockdown() then
-                session = newSession(db().pendingRestore.cvars)
+                session = sessionFromPending(db().pendingRestore)
                 waitForCombatEnd()
             else
                 Core.RestorePending()
@@ -441,6 +486,7 @@ function Core.OnEvent(event, ...)
     elseif event == "PLAYER_LOGOUT" then
         -- Last chance to put CVars back; pendingRestore covers it on next login if this fails.
         if session then
+            safe(restoreCamera, session) -- stays pending (and is saved below) if it errors
             local left = {}
             for _, name in ipairs(session.order) do
                 local orig = session.cvars[name]
@@ -448,7 +494,8 @@ function Core.OnEvent(event, ...)
                     left[name] = orig
                 end
             end
-            db().pendingRestore = next(left) and { cvars = left } or nil
+            local zoom = cameraPending(session) and session.zoom or nil
+            db().pendingRestore = (next(left) or zoom) and { cvars = left, zoom = zoom } or nil
         end
     end
 end

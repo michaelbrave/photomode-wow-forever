@@ -34,6 +34,7 @@ To uninstall, delete the junction: `rmdir "C:\Program Files (x86)\...\AddOns\Pho
 | drag the button | move it (the position is saved per account) |
 | `/photo debug` | list every candidate name CVar and whether it exists on this client, with its value |
 | `/photo restore` | put back settings left over from an interrupted photo |
+| `/photo forget` | give up on a restore that keeps failing (new photos are blocked until it succeeds or is forgotten) |
 | `/photo reset` | move the button back to its default spot |
 
 `/photo debug` also saves its output to `WTF\Account\<ACCOUNT>\SavedVariables\PhotoMode.lua` (key `lastDebug`) once you `/reload` or log out. That file is easier to copy from than chat.

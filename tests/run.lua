@@ -96,7 +96,13 @@ local function setupWorld(opts)
     }
     _G.GetCameraZoom = function() return W.zoom end
     _G.CameraZoomIn = function(d) W.zoom = math.max(0, W.zoom - d) end
-    _G.CameraZoomOut = function(d) W.zoom = math.min(39, W.zoom + d) end
+    _G.CameraZoomOut = function(d)
+        if (W.zoomOutErrors or 0) > 0 then
+            W.zoomOutErrors = W.zoomOutErrors - 1
+            error("camera busy")
+        end
+        W.zoom = math.min(39, W.zoom + d)
+    end
     _G.Screenshot = function()
         if W.screenshotError then error("boom") end
         W.screenshots = W.screenshots + 1
@@ -301,6 +307,86 @@ test("interrupted session is restored on next load from SavedVariables", functio
     local saved, hidden = PhotoModeDB, copy(W.cvars) -- simulate /reload mid-sequence
     load({ cvars = hidden, db = saved })
     sameTable(W.cvars, before); eq(PhotoModeDB.pendingRestore, nil)
+end)
+
+test("camera error on restore stays pending; combat-end retry restores the zoom", function()
+    local ns = load(); local before = copy(W.cvars)
+    ns.Core.Start(); advance(ns.Config.settleDelay)
+    W.zoomOutErrors = 1
+    fire("SCREENSHOT_SUCCEEDED")
+    sameTable(W.cvars, before, "cvars restored"); eq(W.uiShown, true, "ui restored")
+    eq(W.zoom, 0, "camera not restored yet")
+    eq(ns.Core.state, "restoring", "session kept")
+    assert(PhotoModeDB.pendingRestore, "recovery state kept"); eq(PhotoModeDB.pendingRestore.zoom, 12)
+    assert(printedMatch("restore step failed")); assert(printedMatch("could not restore: camera zoom"))
+    eq(ns.Core.Start(), false, "no new photo on top of a pending restore")
+    W.combat = true; fire("PLAYER_REGEN_DISABLED"); W.combat = false
+    fire("PLAYER_REGEN_ENABLED")
+    eq(W.zoom, 12, "zoom restored on retry"); sameTable(W.cvars, before)
+    eq(ns.Core.state, "idle"); eq(PhotoModeDB.pendingRestore, nil)
+end)
+
+test("camera error on restore: /photo restore retries it", function()
+    local ns = load()
+    ns.Core.Start(); advance(ns.Config.settleDelay)
+    W.zoomOutErrors = 1
+    fire("SCREENSHOT_SUCCEEDED"); eq(W.zoom, 0)
+    ns.UI.Slash("restore")
+    eq(W.zoom, 12); eq(ns.Core.state, "idle"); eq(PhotoModeDB.pendingRestore, nil)
+end)
+
+test("camera error during combat cancel is retried when combat ends", function()
+    local ns = load(); local before = copy(W.cvars)
+    W.cvarsProtected = true
+    ns.Core.Start(); advance(0.1)
+    W.zoomOutErrors = 1
+    W.combat = true; fire("PLAYER_REGEN_DISABLED")
+    eq(W.zoom, 0); eq(PhotoModeDB.pendingRestore.zoom, 12)
+    W.combat = false; fire("PLAYER_REGEN_ENABLED")
+    eq(W.zoom, 12); sameTable(W.cvars, before); eq(W.uiShown, true); eq(ns.Core.state, "idle")
+end)
+
+test("reload while the camera is pending restores the zoom on load", function()
+    local ns = load(); local before = copy(W.cvars)
+    ns.Core.Start()
+    local saved, hidden = PhotoModeDB, copy(W.cvars)
+    load({ cvars = hidden, db = saved, zoom = 0 })
+    sameTable(W.cvars, before); eq(W.zoom, 12); eq(PhotoModeDB.pendingRestore, nil)
+end)
+
+test("failed CVar restore out of combat blocks new photos until restored", function()
+    local ns = load(); local before = copy(W.cvars)
+    ns.Core.Start(); advance(ns.Config.settleDelay)
+    W.ignored.UnitNameNPC = true -- client refuses to put it back for now
+    fire("SCREENSHOT_SUCCEEDED")
+    eq(W.cvars.UnitNameNPC, "0"); eq(ns.Core.state, "restoring")
+    eq(PhotoModeDB.pendingRestore.cvars.UnitNameNPC, "1", "original kept")
+    eq(ns.Core.Start(), false, "second photo refused")
+    eq(PhotoModeDB.pendingRestore.cvars.UnitNameNPC, "1", "original not overwritten by hide value")
+    W.ignored.UnitNameNPC = nil
+    ns.UI.Slash("restore")
+    sameTable(W.cvars, before); eq(ns.Core.state, "idle"); eq(PhotoModeDB.pendingRestore, nil)
+    assert(ns.Core.Start(), "photos work again")
+end)
+
+test("leftover pendingRestore is applied before a new snapshot", function()
+    local cv = defaultCVars(); cv.UnitNameNPC = "0"
+    local ns = setupWorld({ cvars = cv, db = { pendingRestore = { cvars = { UnitNameNPC = "1" } } } })
+    -- skip ADDON_LOADED so the leftover is still there when the button is pressed
+    assert(ns.Core.Start())
+    advance(ns.Config.settleDelay); fire("SCREENSHOT_SUCCEEDED")
+    eq(W.cvars.UnitNameNPC, "1", "original survived the second photo")
+end)
+
+test("/photo forget drops a restore that never succeeds", function()
+    local ns = load()
+    ns.Core.Start(); advance(ns.Config.settleDelay)
+    W.ignored.UnitNameNPC = true
+    fire("SCREENSHOT_SUCCEEDED"); eq(ns.Core.state, "restoring")
+    ns.UI.Slash("forget")
+    eq(ns.Core.state, "idle"); eq(PhotoModeDB.pendingRestore, nil)
+    W.ignored.UnitNameNPC = nil
+    assert(ns.Core.Start())
 end)
 
 test("logout mid-sequence writes CVars back", function()
