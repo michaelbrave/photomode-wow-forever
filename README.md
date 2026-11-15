@@ -1,56 +1,110 @@
 <img src="assets/icon.svg" width="64" height="64" alt="">
 
-# wow-photomode
+# PhotoMode Forever
 
-**PhotoMode** is an addon for **WoW: Forever** (Interface 16001). Click its button, or type `/photo`, and it will:
+**One click for a clean first-person screenshot in WoW: Forever.**
 
-1. Hide every unit name, title, guild name, nameplate and chat bubble. Only CVars that exist on your client are changed.
-2. Hide the UI.
-3. Switch to first person. It waits until the camera has actually arrived and stopped moving, then waits another half second so the character fade is finished (no ghost of your head). If the camera has not settled after 3 seconds, it takes the shot anyway and says so in chat. It also raises `cameraZoomSpeed` for the zoom-in, if that CVar exists, and puts it back afterwards.
-4. Take a screenshot.
-5. Put everything back the way it was: every CVar, the UI and your camera distance.
+PhotoMode Forever is a small addon for **WoW: Forever** (Interface 16001). Press its button or type `/photo`. It hides every name, nameplate, chat bubble and the whole UI, switches to first person, takes a screenshot, and then puts your settings back the way they were.
 
-It refuses to start in combat. If combat starts partway through, it cancels the photo. It also restores everything on errors, on reload and on logout.
+<!-- Screenshot placeholder: add an image at docs/screenshot.png and replace this block with
+     ![A screenshot taken with PhotoMode Forever](docs/screenshot.png) -->
+> _Screenshot coming soon._
+
+## Features
+
+- **Clean shots.** Hides player, NPC, pet and guild names, titles, nameplates, chat bubbles and the UI.
+- **No ghosting.** Waits until the camera has fully settled in first person, so your own head does not fade into the picture.
+- **Everything comes back.** Every setting it changes is restored afterwards: CVars, the UI and your camera distance. This also works after an error, a `/reload` or a logout.
+- **Safe on any client.** It only touches settings that exist on your client.
+- **Movable button.** Drag it anywhere. The position is saved per account.
 
 ## Install
 
-Your AddOns folder is `C:\Program Files (x86)\World of Warcraft\_forever_\Interface\AddOns`.
+### Players
 
-Link the addon folder instead of copying it, so a `git pull` updates the game copy too. Open **Command Prompt as Administrator** and run this (change the second path to wherever this repo is):
+1. On this page, click **Code → Download ZIP** (or download a release zip if one is listed under **Releases**).
+2. Unzip it. Inside you will find a folder called `PhotoMode`, the one that holds `PhotoMode.toc`.
+3. Copy that `PhotoMode` folder into your game's AddOns folder, for example:
+
+   ```
+   World of Warcraft\_forever_\Interface\AddOns\PhotoMode
+   ```
+
+   Copy only the `PhotoMode` folder, not the whole unzipped download. If the path ends in `AddOns\photomode-wow-forever-main\PhotoMode`, the game will not find it.
+4. Start the game (or `/reload`). On the character screen, open **AddOns** and make sure **PhotoMode Forever** is enabled.
+
+### Developers: link instead of copying
+
+If you cloned the repo, link the addon folder into the game with a directory junction. Then a `git pull` updates the game copy too. Open **Command Prompt** and run this, replacing the two placeholder paths:
 
 ```bat
-mklink /J "C:\Program Files (x86)\World of Warcraft\_forever_\Interface\AddOns\PhotoMode" "C:\path\to\wow-photomode\PhotoMode"
+mklink /J "<WoW folder>\_forever_\Interface\AddOns\PhotoMode" "<repo folder>\PhotoMode"
 ```
 
-Link to the `PhotoMode` folder inside the repo (the one that holds `PhotoMode.toc`), not to the repo root. Restart the game or `/reload`, and enable **PhotoMode** in the AddOns list on the character screen.
+Link to the `PhotoMode` folder inside the repo, not to the repo root. If `mklink` says access is denied, run Command Prompt as Administrator.
 
-To uninstall, delete the junction: `rmdir "C:\Program Files (x86)\...\AddOns\PhotoMode"`. This removes only the link, not the repo.
+To remove the link later, run `rmdir "<WoW folder>\_forever_\Interface\AddOns\PhotoMode"`. This deletes only the junction. Your repo stays untouched.
 
-## Use
+## Usage
 
 | Command | What it does |
 |---|---|
-| click the button / `/photo` | take a clean screenshot |
-| drag the button | move it (the position is saved per account) |
-| `/photo debug` | open a window listing every candidate CVar, whether it exists on this client and its value, plus camera info |
-| `/photo restore` | put back settings left over from an interrupted photo |
-| `/photo forget` | give up on a restore that keeps failing (new photos are blocked until it succeeds or is forgotten) |
-| `/photo reset` | move the button back to its default spot |
+| click the button / `/photo` | Take a clean screenshot. |
+| drag the button | Move it. The position is saved per account. |
+| `/photo debug` | Open a window with every setting the addon knows about: whether it exists on this client, its current value, and camera info. |
+| `/photo restore` | Put back settings left over from an interrupted photo. |
+| `/photo forget` | Give up on a restore that keeps failing. New photos are blocked until the restore succeeds or is forgotten. |
+| `/photo reset` | Move the button back to its default spot. |
+| `/photo help` | List the commands in chat. |
 
-The `/photo debug` window opens with all its text already selected. Press **Ctrl+C** to copy it (or **Ctrl+A** first if you clicked inside it). Close it with the X button or **Esc**, and drag it to move it.
+Screenshots are saved to the game's usual `Screenshots` folder.
 
-The last report is also saved in `C:\Program Files (x86)\World of Warcraft\_forever_\WTF\Account\<ACCOUNT>\SavedVariables\PhotoMode.lua`, under the key `lastDebug`. The game writes that file when you `/reload` or log out.
+## How it works
 
-Screenshots go to the game's usual `Screenshots` folder.
+1. **Snapshot.** Records the current value of every setting it is about to change, plus your camera distance. The snapshot is also written to the addon's saved variables, so it survives a crash or reload.
+2. **Hide.** Turns off every name, title, guild name, nameplate and chat bubble setting that exists on your client, then hides the UI.
+3. **First person.** Zooms all the way in (briefly raising `cameraZoomSpeed` if your client has it). It waits until the camera has arrived and stopped moving, then waits a little longer so your character has fully faded out. If the camera has not settled after 3 seconds, it takes the shot anyway and tells you in chat.
+4. **Screenshot.** Takes the picture.
+5. **Restore.** Puts back every setting, the UI and your camera distance.
 
-## Tuning
+If anything goes wrong partway through, step 5 still runs. If a restore fails, the leftover parts are kept and tried again later. See [Troubleshooting](#troubleshooting).
 
-Delays, the zoom wait (poll rate, settle frames, post-zoom delay, nudges, 3-second cap), the zoom amount and zoom speed, the alpha fallback mode, the debug window size, the button size and icon, and the full CVar candidate list are in `PhotoMode/Config.lua`.
+## Limits
 
-## Tests
+- **Out of combat only.** The game does not allow the UI to be hidden in combat. PhotoMode refuses to start in combat, and if combat starts partway through, it cancels the photo and restores everything.
+- **Made for WoW: Forever (Interface 16001).** Other WoW versions have not been tested. They may have different setting names, or need a different `## Interface` number in `PhotoMode.toc`.
+- Settings your client does not have are skipped. `/photo debug` shows which ones those are.
 
-`tests/run.lua` runs the core logic against a mocked WoW API. Run it from the repo root with any Lua 5.1+:
+## Troubleshooting
+
+**Names or the UI did not come back.** Type `/photo restore`. It reapplies any settings left over from an interrupted photo.
+
+**PhotoMode keeps saying a restore is pending, and new photos will not start.** One setting keeps failing to restore. Type `/photo forget` to drop the pending restore. Your settings stay as they are now, so check your name, nameplate and chat bubble options in the game's Interface settings afterwards.
+
+**My head shows up in the picture, or something is not hidden.** Type `/photo debug`. The window opens with all its text already selected: press **Ctrl+C** to copy it (click inside and press **Ctrl+A** first if the selection is lost). Close it with the X button or **Esc**. Include this output when you report a problem.
+
+The last debug report is also saved to disk, under the key `lastDebug`, in:
+
+```
+World of Warcraft\_forever_\WTF\Account\<ACCOUNT>\SavedVariables\PhotoMode.lua
+```
+
+The game writes that file when you `/reload` or log out.
+
+## Configuration
+
+All tunable values are in [`PhotoMode/Config.lua`](PhotoMode/Config.lua): the delays, the zoom wait (poll rate, settle frames, post-zoom delay, nudges, the 3-second cap), the zoom amount and speed, the alpha fallback mode, the debug window size, the button size and icon, and the full list of settings the addon may hide. Edit the file and `/reload` to apply your changes.
+
+## Running the tests
+
+`tests/run.lua` runs the core logic against a mocked WoW API, so it needs no game client. From the repo root, run it with any Lua 5.1 or newer:
 
 ```
 lua tests/run.lua
 ```
+
+The last line shows the number of tests and failures.
+
+## License
+
+PhotoMode Forever is released under the MIT License. See [LICENSE](LICENSE).

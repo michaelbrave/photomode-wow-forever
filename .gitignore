@@ -1,1 +1,16 @@
+# Local scratch space and test tooling (Python/Lua runners, installed libs)
 .scratch/
+__pycache__/
+*.pyc
+
+# Local editor / agent tooling, never part of the addon
+.claude/
+.agents/
+.studio/
+.mcp.json
+AGENTS.override.md
+
+# OS clutter
+Thumbs.db
+Desktop.ini
+.DS_Store

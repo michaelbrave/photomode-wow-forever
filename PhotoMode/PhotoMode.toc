@@ -1,6 +1,6 @@
 ## Interface: 16001
-## Title: PhotoMode
-## Notes: One click (or /photo): hide every name, nameplate, chat bubble and the UI, go first person, take a screenshot, then put everything back.
+## Title: PhotoMode Forever
+## Notes: PhotoMode Forever - one click (or /photo): hide every name, nameplate, chat bubble and the UI, go first person, take a screenshot, then put everything back.
 ## Author: Michael Brave
 ## Version: 0.2.0
 ## SavedVariables: PhotoModeDB
