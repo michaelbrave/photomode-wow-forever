@@ -1,4 +1,4 @@
-<img src="assets/icon.svg" width="64" height="64" alt="">
+<img src="assets/curseforge-icon.png" width="96" height="96" alt="PhotoMode Forever icon: a brass and leather camera">
 
 # PhotoMode Forever
 

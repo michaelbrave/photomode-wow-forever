@@ -65,7 +65,7 @@ Config.alphaFallback = "auto"
 -- Button defaults.
 Config.button = {
     size = 36,
-    icon = "Interface\\Icons\\INV_Misc_Spyglass_03",
+    icon = "Interface\\AddOns\\PhotoMode\\icon",
     point = "CENTER",
     relativePoint = "CENTER",
     x = 0,
