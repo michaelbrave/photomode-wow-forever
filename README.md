@@ -2,4 +2,52 @@
 
 # wow-photomode
 
-Created in [T3 Code](https://t3.codes).
+**PhotoMode** is an addon for **WoW: Forever** (Interface 16001). Click its button, or type `/photo`, and it will:
+
+1. Hide every unit name, title, guild name, nameplate and chat bubble. Only CVars that exist on your client are changed.
+2. Hide the UI.
+3. Switch to first person.
+4. Take a screenshot.
+5. Put everything back the way it was: every CVar, the UI and your camera distance.
+
+It refuses to start in combat. If combat starts partway through, it cancels the photo. It also restores everything on errors, on reload and on logout.
+
+## Install
+
+Your AddOns folder is `C:\Program Files (x86)\World of Warcraft\_forever_\Interface\AddOns`.
+
+Link the addon folder instead of copying it, so a `git pull` updates the game copy too. Open **Command Prompt as Administrator** and run this (change the second path to wherever this repo is):
+
+```bat
+mklink /J "C:\Program Files (x86)\World of Warcraft\_forever_\Interface\AddOns\PhotoMode" "C:\path\to\wow-photomode\PhotoMode"
+```
+
+Link to the `PhotoMode` folder inside the repo (the one that holds `PhotoMode.toc`), not to the repo root. Restart the game or `/reload`, and enable **PhotoMode** in the AddOns list on the character screen.
+
+To uninstall, delete the junction: `rmdir "C:\Program Files (x86)\...\AddOns\PhotoMode"`. This removes only the link, not the repo.
+
+## Use
+
+| Command | What it does |
+|---|---|
+| click the button / `/photo` | take a clean screenshot |
+| drag the button | move it (the position is saved per account) |
+| `/photo debug` | list every candidate name CVar and whether it exists on this client, with its value |
+| `/photo restore` | put back settings left over from an interrupted photo |
+| `/photo reset` | move the button back to its default spot |
+
+`/photo debug` also saves its output to `WTF\Account\<ACCOUNT>\SavedVariables\PhotoMode.lua` (key `lastDebug`) once you `/reload` or log out. That file is easier to copy from than chat.
+
+Screenshots go to the game's usual `Screenshots` folder.
+
+## Tuning
+
+Delays, the zoom amount, the alpha fallback mode, the button size and icon, and the full CVar candidate list are in `PhotoMode/Config.lua`.
+
+## Tests
+
+`tests/run.lua` runs the core logic against a mocked WoW API. Run it from the repo root with any Lua 5.1+:
+
+```
+lua tests/run.lua
+```
