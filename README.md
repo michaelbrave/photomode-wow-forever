@@ -6,9 +6,9 @@
 
 PhotoMode Forever is a small addon for **WoW: Forever** (Interface 16001). Press its button or type `/photo`. It hides every name, nameplate, chat bubble and the whole UI, switches to first person, takes a screenshot, and then puts your settings back the way they were.
 
-<!-- Screenshot placeholder: add an image at docs/screenshot.png and replace this block with
-     ![A screenshot taken with PhotoMode Forever](docs/screenshot.png) -->
-> _Screenshot coming soon._
+| Before | After one click |
+|---|---|
+| ![Normal third-person view with the UI, names and nameplates showing](assets/examples/before.jpg) | ![The same spot taken with PhotoMode Forever: first person, no UI, no names](assets/examples/after.jpg) |
 
 ## Features
 
