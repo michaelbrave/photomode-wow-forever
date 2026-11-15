@@ -5,9 +5,33 @@ local _, ns = ...
 local Config = {}
 ns.Config = Config
 
--- Seconds to wait after hiding names/UI and zooming in, so the camera and names settle
--- before Screenshot() is called.
-Config.settleDelay = 0.75
+-- Waiting for first person. After CameraZoomIn() the camera animates in, and the character
+-- model fades while the camera passes close to the head; shooting during that leaves a ghost
+-- of the head in the picture. So GetCameraZoom() is polled until it is at first person and
+-- has stopped changing, then postZoomDelay passes, then Screenshot() is called.
+
+-- Seconds between GetCameraZoom() polls (a couple of frames at 60 fps).
+Config.zoomPollInterval = 0.03
+
+-- Consecutive polls the zoom must stay unchanged before it counts as settled.
+Config.zoomStableTicks = 3
+
+-- Two polls this close (in yards) count as "unchanged".
+Config.zoomStillEpsilon = 0.01
+
+-- A zoom at or below this counts as first person.
+Config.firstPersonEpsilon = 0.05
+
+-- Extra seconds after the zoom settled at first person, so the character fade finishes.
+Config.postZoomDelay = 0.5
+
+-- If the zoom has settled but is not at first person, call CameraZoomIn() again, at most
+-- this many times.
+Config.maxZoomNudges = 3
+
+-- Cap on the whole zoom wait (seconds from the first CameraZoomIn). After it, the screenshot
+-- is taken anyway (without postZoomDelay).
+Config.zoomSettleTimeout = 3
 
 -- Seconds to wait for SCREENSHOT_SUCCEEDED / SCREENSHOT_FAILED before restoring anyway.
 Config.screenshotTimeout = 5
@@ -15,6 +39,22 @@ Config.screenshotTimeout = 5
 -- Amount passed to CameraZoomIn() to reach first person. The engine clamps it, so any
 -- value larger than the max camera distance works.
 Config.firstPersonZoomIn = 50
+
+-- Camera CVars set for the photo and restored afterwards, like the name CVars
+-- ({ name, photo value, group }). Each is skipped if it does not exist on this client.
+-- cameraZoomSpeed: makes the zoom-in finish fast. 50 is the highest value retail/classic
+-- accept; UNCERTAIN on Forever - if the client clamps it, the zoom is just slower.
+-- No character-fade CVar is touched: none is known to exist, so none is guessed at.
+Config.cameraCVars = {
+    { "cameraZoomSpeed", "50", "camera" },
+}
+
+-- /photo debug window.
+Config.debugWindow = {
+    width = 640,
+    height = 420,
+    backgroundAlpha = 0.9,
+}
 
 -- Alpha fallback for nameplates:
 --   "auto"   = only if a nameplate visibility CVar is missing or the client ignores the write

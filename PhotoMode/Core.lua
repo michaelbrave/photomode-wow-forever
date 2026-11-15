@@ -215,11 +215,65 @@ local function shoot()
     Screenshot()
 end
 
+local function readZoom()
+    local ok, z = pcall(GetCameraZoom)
+    if not ok or isSecret(z) then return nil end
+    return tonumber(z)
+end
+
+-- Polls GetCameraZoom() until it sits at first person and has stopped changing for
+-- Config.zoomStableTicks polls, then shoots after Config.postZoomDelay. A zoom that settles
+-- short of first person is nudged with CameraZoomIn() again. After Config.zoomSettleTimeout
+-- the screenshot is taken anyway.
+local function waitForZoom()
+    local s = session
+    local start = GetTime()
+    local last, stable, nudges = nil, 0, 0
+
+    local function poll()
+        local z = readZoom()
+        if z ~= nil and last ~= nil and math.abs(z - last) <= Config.zoomStillEpsilon then
+            stable = stable + 1
+        else
+            stable = 0
+        end
+        last = z
+
+        if z ~= nil and stable >= Config.zoomStableTicks then
+            if z <= Config.firstPersonEpsilon then
+                s.zoomSettled = true
+                Core.lastZoomWait = ("settled at %s after %.2fs, %d nudge(s)"):format(
+                    tostring(z), GetTime() - start, nudges)
+                C_Timer.After(Config.postZoomDelay, forSession(s.id, shoot))
+                return
+            elseif nudges < Config.maxZoomNudges then
+                nudges = nudges + 1
+                CameraZoomIn(Config.firstPersonZoomIn)
+                stable = 0
+            end
+        end
+
+        if GetTime() - start >= Config.zoomSettleTimeout then
+            s.zoomSettled = false
+            Core.lastZoomWait = ("hit the %ss cap at zoom %s, %d nudge(s)"):format(
+                tostring(Config.zoomSettleTimeout), tostring(z), nudges)
+            Core.Print(("camera did not settle in first person within %ss (zoom %s); taking the screenshot anyway.")
+                :format(tostring(Config.zoomSettleTimeout), tostring(z)))
+            shoot()
+            return
+        end
+        C_Timer.After(Config.zoomPollInterval, forSession(s.id, poll))
+    end
+
+    C_Timer.After(Config.zoomPollInterval, forSession(s.id, poll))
+end
+
 local function prepare()
     local s = session
 
-    -- 1. snapshot + hide names/nameplates/bubbles
+    -- 1. snapshot + hide names/nameplates/bubbles, and set camera CVars (zoom speed)
     snapshot(s, Config.cvars)
+    snapshot(s, Config.cameraCVars)
     persistPending(s) -- survives /reload or a crash mid-sequence
     applyHide(s)
     if needAlphaFallback(s) then applyAlphaFallback(s) end
@@ -234,8 +288,8 @@ local function prepare()
     persistPending(s) -- now includes the saved zoom
     CameraZoomIn(Config.firstPersonZoomIn)
 
-    -- 4. let it settle, then shoot
-    C_Timer.After(Config.settleDelay, forSession(s.id, shoot))
+    -- 4. wait for the zoom to settle at first person, then shoot
+    waitForZoom()
 end
 
 ---------------------------------------------------------------------------
@@ -410,10 +464,7 @@ function Core.IsActive() return session ~= nil end
 
 function Core.Debug()
     local lines = {}
-    local function add(line)
-        lines[#lines + 1] = line
-        Core.Print(line)
-    end
+    local function add(line) lines[#lines + 1] = line end
 
     local version, build, _, toc = "?", "?", nil, "?"
     if GetBuildInfo then version, build, _, toc = GetBuildInfo() end
@@ -434,6 +485,7 @@ function Core.Debug()
     end
     dump(Config.cvars)
     dump(Config.alphaCVars)
+    dump(Config.cameraCVars)
     add(("%d of %d candidate CVars exist"):format(present, total))
 
     local function has(v) return v ~= nil and "yes" or "NO" end
@@ -444,9 +496,21 @@ function Core.Debug()
     local zoomOk, zoom = pcall(GetCameraZoom)
     add(("camera zoom = %s, state = %s, pending restore = %s"):format(
         zoomOk and tostring(zoom) or "error", Core.state, db().pendingRestore and "yes" or "no"))
+    add("last zoom wait: " .. (Core.lastZoomWait or "none this session"))
 
-    db().lastDebug = lines -- also readable in WTF\...\SavedVariables\PhotoMode.lua after /reload
-    return lines
+    -- Saved as a list of lines so it stays readable in
+    -- WTF\Account\<ACCOUNT>\SavedVariables\PhotoMode.lua (written on /reload or logout).
+    db().lastDebug = lines
+    local report = table.concat(lines, "\n")
+    if ns.UI and ns.UI.ShowDebug then
+        local ok = pcall(ns.UI.ShowDebug, report)
+        if ok then
+            Core.Print("debug report opened in a window (Ctrl+A, Ctrl+C to copy). Also saved as lastDebug in SavedVariables\\PhotoMode.lua after /reload or logout.")
+            return lines, report
+        end
+    end
+    for _, line in ipairs(lines) do Core.Print(line) end -- window failed: fall back to chat
+    return lines, report
 end
 
 ---------------------------------------------------------------------------

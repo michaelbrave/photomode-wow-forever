@@ -6,7 +6,7 @@
 
 1. Hide every unit name, title, guild name, nameplate and chat bubble. Only CVars that exist on your client are changed.
 2. Hide the UI.
-3. Switch to first person.
+3. Switch to first person. It waits until the camera has actually arrived and stopped moving, then waits another half second so the character fade is finished (no ghost of your head). If the camera has not settled after 3 seconds, it takes the shot anyway and says so in chat. It also raises `cameraZoomSpeed` for the zoom-in, if that CVar exists, and puts it back afterwards.
 4. Take a screenshot.
 5. Put everything back the way it was: every CVar, the UI and your camera distance.
 
@@ -32,18 +32,20 @@ To uninstall, delete the junction: `rmdir "C:\Program Files (x86)\...\AddOns\Pho
 |---|---|
 | click the button / `/photo` | take a clean screenshot |
 | drag the button | move it (the position is saved per account) |
-| `/photo debug` | list every candidate name CVar and whether it exists on this client, with its value |
+| `/photo debug` | open a window listing every candidate CVar, whether it exists on this client and its value, plus camera info |
 | `/photo restore` | put back settings left over from an interrupted photo |
 | `/photo forget` | give up on a restore that keeps failing (new photos are blocked until it succeeds or is forgotten) |
 | `/photo reset` | move the button back to its default spot |
 
-`/photo debug` also saves its output to `WTF\Account\<ACCOUNT>\SavedVariables\PhotoMode.lua` (key `lastDebug`) once you `/reload` or log out. That file is easier to copy from than chat.
+The `/photo debug` window opens with all its text already selected. Press **Ctrl+C** to copy it (or **Ctrl+A** first if you clicked inside it). Close it with the X button or **Esc**, and drag it to move it.
+
+The last report is also saved in `C:\Program Files (x86)\World of Warcraft\_forever_\WTF\Account\<ACCOUNT>\SavedVariables\PhotoMode.lua`, under the key `lastDebug`. The game writes that file when you `/reload` or log out.
 
 Screenshots go to the game's usual `Screenshots` folder.
 
 ## Tuning
 
-Delays, the zoom amount, the alpha fallback mode, the button size and icon, and the full CVar candidate list are in `PhotoMode/Config.lua`.
+Delays, the zoom wait (poll rate, settle frames, post-zoom delay, nudges, 3-second cap), the zoom amount and zoom speed, the alpha fallback mode, the debug window size, the button size and icon, and the full CVar candidate list are in `PhotoMode/Config.lua`.
 
 ## Tests
 
