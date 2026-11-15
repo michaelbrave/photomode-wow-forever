@@ -14,7 +14,7 @@ PhotoMode Forever is a small addon for **WoW: Forever** (Interface 16001). Press
 
 - **Clean shots.** Hides player, NPC, pet and guild names, titles, nameplates, chat bubbles and the UI.
 - **No ghosting.** Waits until the camera has fully settled in first person, so your own head does not fade into the picture.
-- **Everything comes back.** Every setting it changes is restored afterwards: CVars, the UI and your camera distance. This also works after an error, a `/reload` or a logout.
+- **Everything comes back.** Every setting it changes is restored afterwards: CVars, the UI and your camera distance. This also works after an error, a `/reload` or a logout (not after a game crash mid-photo; see below).
 - **Safe on any client.** It only touches settings that exist on your client.
 - **Movable button.** Drag it anywhere. The position is saved per account.
 
@@ -61,7 +61,7 @@ Screenshots are saved to the game's usual `Screenshots` folder.
 
 ## How it works
 
-1. **Snapshot.** Records the current value of every setting it is about to change, plus your camera distance. The snapshot is also written to the addon's saved variables, so it survives a crash or reload.
+1. **Snapshot.** Records the current value of every setting it is about to change, plus your camera distance. The snapshot is also written to the addon's saved variables, so it survives a `/reload` or logout. (The game only writes saved variables on reload or logout, so a crash in the middle of a photo can lose it. If that happens, turn names and nameplates back on in the game's Interface options.)
 2. **Hide.** Turns off every name, title, guild name, nameplate and chat bubble setting that exists on your client, then hides the UI.
 3. **First person.** Zooms all the way in (briefly raising `cameraZoomSpeed` if your client has it). It waits until the camera has arrived and stopped moving, then waits a little longer so your character has fully faded out. If the camera has not settled after 3 seconds, it takes the shot anyway and tells you in chat.
 4. **Screenshot.** Takes the picture.
