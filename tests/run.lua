@@ -69,6 +69,7 @@ local function defaultCVars()
         "nameplateShowAll", "nameplateShowFriends", "nameplateShowFriendlyNPCs", "nameplateShowEnemies",
         "nameplateShowEnemyMinions", "nameplateShowEnemyMinus", "nameplateShowSelf",
         "chatBubbles", "chatBubblesParty",
+        "ShowQuestUnitCircles", "showTaxiNodeLearnedIcon",
     }) do cv[n] = "1" end
     cv.UnitNameOwn = "0"
     cv.UnitNameForceHideMinus = "0"
@@ -92,6 +93,22 @@ local function camNow()
     return W.cam
 end
 
+-- Minimap tracking menu, as C_Minimap exposes it. Filter IDs are arbitrary but distinct.
+local FILTER = { TrivialQuests = 9, AccountCompletedQuests = 14, Repair = 2 }
+local function defaultTracking()
+    return {
+        { filterID = FILTER.Repair, active = true },
+        { filterID = FILTER.TrivialQuests, active = true },
+        { filterID = FILTER.AccountCompletedQuests, active = false },
+    }
+end
+
+local function trackingState(filterName)
+    for _, t in ipairs(W.tracking) do
+        if t.filterID == FILTER[filterName] then return t.active end
+    end
+end
+
 local function setupWorld(opts)
     opts = opts or {}
     W = {
@@ -109,6 +126,8 @@ local function setupWorld(opts)
         plates = opts.plates or {},
         setLog = {},
         zoomInFloors = opts.zoomInFloors,
+        tracking = opts.tracking or defaultTracking(),
+        trackingLocked = {}, -- filterID -> true: SetTracking is silently ignored
     }
     _G.PhotoModeDB = opts.db
     _G.C_CVar = {
@@ -154,7 +173,23 @@ local function setupWorld(opts)
         W.screenshots = W.screenshots + 1
         W.snapAt = { cvars = {}, ui = W.uiShown, zoom = camNow(), time = W.now }
         for k, v in pairs(W.cvars) do W.snapAt.cvars[k] = v end
+        W.snapAt.tracking = {}
+        for name in pairs(FILTER) do W.snapAt.tracking[name] = trackingState(name) end
     end
+    _G.Enum = { MinimapTrackingFilter = FILTER }
+    _G.C_Minimap = opts.noMinimap and {} or {
+        GetNumTrackingTypes = function() return #W.tracking end,
+        GetTrackingFilter = function(i) local t = W.tracking[i]; return t and { filterID = t.filterID, spellID = 0 } end,
+        GetTrackingInfo = function(i)
+            local t = W.tracking[i]
+            return t and { name = "t" .. i, texture = 0, active = t.active, type = "other", subType = -1 }
+        end,
+        SetTracking = function(i, on)
+            local t = assert(W.tracking[i], "bad tracking index")
+            W.trackingWrites = (W.trackingWrites or 0) + 1
+            if not W.trackingLocked[t.filterID] then t.active = on end
+        end,
+    }
     _G.C_Timer = { After = function(d, fn) W.timers[#W.timers + 1] = { at = W.now + d, fn = fn } end }
     _G.GetTime = function() return W.now end
     _G.GetBuildInfo = function() return "1.60.1", "69913", "Nov 2026", 16001 end
@@ -487,6 +522,104 @@ test("/photo debug falls back to chat if the window cannot be built", function()
     ns.UI.ShowDebug = function() error("no templates") end
     ns.UI.Slash("debug")
     assert(printedMatch("UnitNameNPC = 1")); assert(PhotoModeDB.lastDebug)
+end)
+
+---------------------------------------------------------------------------
+-- Quest markers (minimap tracking filters + marker CVars)
+---------------------------------------------------------------------------
+
+test("quest marker filters are off for the shot and restored exactly", function()
+    local ns = load(); local before = copy(W.cvars)
+    assert(ns.Core.Start())
+    eq(trackingState("TrivialQuests"), false, "trivial quests hidden")
+    eq(PhotoModeDB.pendingRestore.tracking.TrivialQuests, true, "original persisted")
+    settle(ns)
+    eq(W.snapAt.tracking.TrivialQuests, false)
+    eq(W.snapAt.tracking.AccountCompletedQuests, false, "already off stays off")
+    eq(W.snapAt.tracking.Repair, true, "unrelated tracking untouched")
+    eq(W.snapAt.cvars.ShowQuestUnitCircles, "0"); eq(W.snapAt.cvars.showTaxiNodeLearnedIcon, "0")
+    fire("SCREENSHOT_SUCCEEDED")
+    eq(trackingState("TrivialQuests"), true); eq(trackingState("AccountCompletedQuests"), false)
+    eq(trackingState("Repair"), true)
+    sameTable(W.cvars, before); eq(ns.Core.state, "idle"); eq(PhotoModeDB.pendingRestore, nil)
+end)
+
+test("quest filters the player had off are never turned on", function()
+    local tracking = defaultTracking()
+    tracking[2].active = false -- TrivialQuests off; AccountCompletedQuests is off by default
+    local ns = load({ tracking = tracking })
+    assert(ns.Core.Start()); settle(ns)
+    eq(W.snapAt.tracking.TrivialQuests, false)
+    fire("SCREENSHOT_SUCCEEDED")
+    eq(trackingState("TrivialQuests"), false, "still off after the photo")
+    eq(trackingState("AccountCompletedQuests"), false, "still off after the photo")
+    eq(W.trackingWrites, nil, "tracking menu never written")
+    -- same after a reload mid-photo
+    ns.Core.Start()
+    load({ cvars = copy(W.cvars), db = PhotoModeDB, tracking = W.tracking })
+    eq(trackingState("TrivialQuests"), false); eq(trackingState("AccountCompletedQuests"), false)
+    eq(W.trackingWrites, nil, "tracking menu never written after reload")
+end)
+
+test("only the quest filters the player had on are restored to on", function()
+    local tracking = defaultTracking()
+    tracking[3].active = true -- AccountCompletedQuests on, TrivialQuests on
+    local ns = load({ tracking = tracking })
+    ns.Core.Start(); settle(ns)
+    eq(W.snapAt.tracking.TrivialQuests, false); eq(W.snapAt.tracking.AccountCompletedQuests, false)
+    fire("SCREENSHOT_SUCCEEDED")
+    eq(trackingState("TrivialQuests"), true); eq(trackingState("AccountCompletedQuests"), true)
+end)
+
+test("tracking menu reordered mid-photo still restores the right filter", function()
+    local ns = load()
+    ns.Core.Start(); settle(ns)
+    table.insert(W.tracking, 1, { filterID = 99, active = false }) -- indexes shift
+    fire("SCREENSHOT_SUCCEEDED")
+    eq(trackingState("TrivialQuests"), true); eq(W.tracking[1].active, false)
+end)
+
+test("quest marker filters are restored after a reload mid-sequence", function()
+    local ns = load()
+    ns.Core.Start()
+    local saved, hidden, tracking = PhotoModeDB, copy(W.cvars), W.tracking
+    eq(trackingState("TrivialQuests"), false)
+    load({ cvars = hidden, db = saved, tracking = tracking })
+    eq(trackingState("TrivialQuests"), true); eq(PhotoModeDB.pendingRestore, nil)
+end)
+
+test("logout mid-sequence puts quest marker filters back", function()
+    local ns = load()
+    ns.Core.Start(); fire("PLAYER_LOGOUT")
+    eq(trackingState("TrivialQuests"), true); eq(PhotoModeDB.pendingRestore, nil)
+end)
+
+test("tracking that will not restore keeps the session pending", function()
+    local ns = load()
+    ns.Core.Start(); settle(ns)
+    W.trackingLocked[FILTER.TrivialQuests] = true
+    fire("SCREENSHOT_SUCCEEDED")
+    eq(ns.Core.state, "restoring"); assert(printedMatch("could not restore: tracking TrivialQuests"))
+    eq(PhotoModeDB.pendingRestore.tracking.TrivialQuests, true)
+    W.trackingLocked[FILTER.TrivialQuests] = nil
+    ns.UI.Slash("restore")
+    eq(trackingState("TrivialQuests"), true); eq(ns.Core.state, "idle")
+end)
+
+test("no C_Minimap tracking API: photo still works, nothing pending", function()
+    local ns = load({ noMinimap = true }); local before = copy(W.cvars)
+    assert(ns.Core.Start()); eq(PhotoModeDB.pendingRestore.tracking, nil)
+    settle(ns); fire("SCREENSHOT_SUCCEEDED")
+    sameTable(W.cvars, before); eq(ns.Core.state, "idle")
+end)
+
+test("/photo debug lists the quest marker tracking filters", function()
+    local ns = load()
+    ns.UI.Slash("debug")
+    local text = ns.UI.debugFrame.edit:GetText()
+    assert(text:find("tracking TrivialQuests = true", 1, true), text)
+    assert(text:find("tracking AccountCompletedQuests = false", 1, true))
+    assert(text:find("ShowQuestUnitCircles = 1", 1, true))
 end)
 
 ---------------------------------------------------------------------------

@@ -122,7 +122,22 @@ Config.cvars = {
     -- Chat bubbles
     { "chatBubbles",                    "0", "bubble" },
     { "chatBubblesParty",               "0", "bubble" },
+
+    -- Quest / world markers (both found in the Forever 16001 client's CVar table)
+    { "ShowQuestUnitCircles",           "0", "marker" }, -- quest-target circles on the ground
+    { "showTaxiNodeLearnedIcon",        "0", "marker" }, -- icon over flight masters' heads
 }
+
+-- Minimap tracking filters switched off for the photo and restored afterwards
+-- (Enum.MinimapTrackingFilter names, set through C_Minimap.SetTracking). These also control
+-- the quest marks over NPC heads:
+--   TrivialQuests          = grey "!" for low-level / out-of-level quests
+--   AccountCompletedQuests = marks for quests already completed on another warband character
+-- A filter that is missing on this client, or not offered in this character's tracking
+-- menu, is skipped.
+-- Note: the client has no setting to hide the normal yellow/blue "!" and "?" of quests at
+-- your level; Blizzard draws those itself and no CVar or API turns them off.
+Config.trackingFilters = { "TrivialQuests", "AccountCompletedQuests" }
 
 -- Nameplate alpha CVars used only by the alpha fallback (same existence rules).
 Config.alphaCVars = {

@@ -12,7 +12,7 @@ PhotoMode Forever is a small addon for **WoW: Forever** (Interface 16001). Press
 
 ## Features
 
-- **Clean shots.** Hides player, NPC, pet and guild names, titles, nameplates, chat bubbles and the UI.
+- **Clean shots.** Hides player, NPC, pet and guild names, titles, nameplates, chat bubbles and the UI. It also hides grey quest marks (low-level quests), marks for quests your warband has already completed, quest-target circles on the ground and the flight-master icon. The game has no setting for the normal yellow and blue `!` and `?` of quests at your level, so those stay in the picture.
 - **No ghosting.** Waits until the camera has fully settled in first person, so your own head does not fade into the picture.
 - **Everything comes back.** Every setting it changes is restored afterwards: CVars, the UI and your camera distance. This also works after an error, a `/reload` or a logout (not after a game crash mid-photo; see below).
 - **Safe on any client.** It only touches settings that exist on your client.
@@ -62,10 +62,10 @@ Screenshots are saved to the game's usual `Screenshots` folder.
 ## How it works
 
 1. **Snapshot.** Records the current value of every setting it is about to change, plus your camera distance. The snapshot is also written to the addon's saved variables, so it survives a `/reload` or logout. (The game only writes saved variables on reload or logout, so a crash in the middle of a photo can lose it. If that happens, turn names and nameplates back on in the game's Interface options.)
-2. **Hide.** Turns off every name, title, guild name, nameplate and chat bubble setting that exists on your client, then hides the UI.
+2. **Hide.** Turns off every name, title, guild name, nameplate, chat bubble and quest marker setting that exists on your client. It also switches off the *Trivial Quests* and *Account Completed Quests* minimap tracking filters, then hides the UI.
 3. **First person.** Zooms all the way in (briefly raising `cameraZoomSpeed` if your client has it). It waits until the camera has arrived and stopped moving, then waits a little longer so your character has fully faded out. If the camera has not settled after 3 seconds, it takes the shot anyway and tells you in chat.
 4. **Screenshot.** Takes the picture.
-5. **Restore.** Puts back every setting, the UI and your camera distance.
+5. **Restore.** Puts back every setting, the minimap tracking filters, the UI and your camera distance.
 
 If anything goes wrong partway through, step 5 still runs. If a restore fails, the leftover parts are kept and tried again later. See [Troubleshooting](#troubleshooting).
 
@@ -80,6 +80,8 @@ If anything goes wrong partway through, step 5 still runs. If a restore fails, t
 **Names or the UI did not come back.** Type `/photo restore`. It reapplies any settings left over from an interrupted photo.
 
 **PhotoMode keeps saying a restore is pending, and new photos will not start.** One setting keeps failing to restore. Type `/photo forget` to drop the pending restore. Your settings stay as they are now, so check your name, nameplate and chat bubble options in the game's Interface settings afterwards.
+
+**Yellow or blue `!` and `?` quest marks still show over NPCs.** This is expected. The game draws the marks for quests at your level in the 3D world, not in the interface, and has no setting to hide them, fade them or make them smaller, so no addon can remove them. PhotoMode hides what the game does let it hide: grey marks for low-level quests, marks for quests your warband has already completed, and quest circles on the ground. For a clean shot of a particular NPC, accept or turn in their quest first, tilt the camera so the space above their head is out of frame, or remove the mark afterwards in an image editor.
 
 **My head shows up in the picture, or something is not hidden.** Type `/photo debug`. The window opens with all its text already selected: press **Ctrl+C** to copy it (click inside and press **Ctrl+A** first if the selection is lost). Close it with the X button or **Esc**. Include this output when you report a problem.
 

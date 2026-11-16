@@ -62,6 +62,47 @@ function Core.SetCVar(name, value)
     return ok and sameValue(Core.GetCVar(name), value)
 end
 
+-- Minimap tracking filters (Enum.MinimapTrackingFilter names, e.g. "TrivialQuests").
+-- The tracking menu is indexed by position, which can change, so the filter is looked up by
+-- its filterID every time. Returns the index and whether it is active, or nil if this client
+-- or character does not offer that filter.
+local function findTracking(filterName)
+    local M = C_Minimap
+    if not (M and M.GetNumTrackingTypes and M.GetTrackingFilter and M.GetTrackingInfo) then return nil end
+    local filterID = Enum and Enum.MinimapTrackingFilter and Enum.MinimapTrackingFilter[filterName]
+    if filterID == nil then return nil end
+    local ok, count = pcall(M.GetNumTrackingTypes)
+    if not ok or type(count) ~= "number" then return nil end
+    for i = 1, count do
+        local okF, filter = pcall(M.GetTrackingFilter, i)
+        if okF and type(filter) == "table" and filter.filterID == filterID then
+            -- newer clients return a table; older ones return name, texture, active, ...
+            local okI, a, _, c = pcall(M.GetTrackingInfo, i)
+            if not okI then return nil end
+            local active
+            if type(a) == "table" then active = a.active else active = c end
+            if isSecret(active) then return nil end
+            return i, active == true
+        end
+    end
+    return nil
+end
+
+-- Returns true/false for whether the tracking filter is on, or nil if it does not exist here.
+function Core.GetTracking(filterName)
+    local index, active = findTracking(filterName)
+    if index == nil then return nil end
+    return active
+end
+
+-- Turns a tracking filter on/off and reads it back. Returns true only if it now holds `on`.
+function Core.SetTracking(filterName, on)
+    local index = findTracking(filterName)
+    if index == nil then return false end
+    local ok = pcall(C_Minimap.SetTracking, index, on)
+    return ok and Core.GetTracking(filterName) == on
+end
+
 local function safe(fn, ...)
     local ok, err = pcall(fn, ...)
     if not ok then Core.Print("restore step failed: " .. tostring(err)) end
@@ -94,9 +135,14 @@ end
 -- Saves what is still needed to undo this session, so /reload, a crash or a later
 -- /photo restore can finish the job. UI visibility is not saved: a reload always shows it.
 local function persistPending(s)
-    local copy = {}
+    local copy, tracking = {}, {}
     for name, value in pairs(s.cvars) do copy[name] = value end
-    db().pendingRestore = { cvars = copy, zoom = cameraPending(s) and s.zoom or nil }
+    for name, value in pairs(s.tracking) do tracking[name] = value end
+    db().pendingRestore = {
+        cvars = copy,
+        tracking = next(tracking) and tracking or nil,
+        zoom = cameraPending(s) and s.zoom or nil,
+    }
 end
 
 local function newSession(cvars)
@@ -108,6 +154,7 @@ local function newSession(cvars)
         group = {},     -- name -> group
         unhonored = {}, -- name -> true when the client ignored our hide write
         frameAlpha = {},-- nameplate frame -> original alpha
+        tracking = {},  -- tracking filter name -> original on/off (only filters that exist)
     }
     if cvars then
         for name, value in pairs(cvars) do
@@ -122,6 +169,9 @@ end
 -- Rebuilds a session from SavedVariables (after /reload, crash or logout).
 local function sessionFromPending(pending)
     local s = newSession(pending.cvars)
+    if type(pending.tracking) == "table" then
+        for name, value in pairs(pending.tracking) do s.tracking[name] = value end
+    end
     if type(pending.zoom) == "number" then
         s.zoom = pending.zoom
         s.zoomChanged = true
@@ -131,6 +181,7 @@ end
 
 local function hasPending(pending)
     return pending ~= nil and ((pending.cvars ~= nil and next(pending.cvars) ~= nil)
+        or (type(pending.tracking) == "table" and next(pending.tracking) ~= nil)
         or type(pending.zoom) == "number")
 end
 
@@ -162,6 +213,36 @@ local function applyHide(s, fromIndex)
             s.unhonored[name] = true
         end
     end
+end
+
+-- Records every configured tracking filter that exists, then switches the active ones off.
+-- Called after persistPending so the originals are saved before anything changes.
+local function snapshotTracking(s)
+    for _, name in ipairs(Config.trackingFilters or {}) do
+        if s.tracking[name] == nil then
+            local active = Core.GetTracking(name)
+            if active ~= nil then s.tracking[name] = active end
+        end
+    end
+end
+
+local function hideTracking(s)
+    for name, active in pairs(s.tracking) do
+        if active then Core.SetTracking(name, false) end
+    end
+end
+
+-- Puts every tracking filter back. Returns name -> original for those that would not restore.
+-- A filter that has disappeared from the menu cannot be restored and is dropped.
+local function restoreTracking(s)
+    local left = {}
+    for name, orig in pairs(s.tracking) do
+        local now = Core.GetTracking(name)
+        if now ~= nil and now ~= orig and not Core.SetTracking(name, orig) then
+            left[name] = orig
+        end
+    end
+    return left
 end
 
 local function needAlphaFallback(s)
@@ -274,8 +355,10 @@ local function prepare()
     -- 1. snapshot + hide names/nameplates/bubbles, and set camera CVars (zoom speed)
     snapshot(s, Config.cvars)
     snapshot(s, Config.cameraCVars)
+    snapshotTracking(s) -- quest marks over NPC heads (trivial / warband-completed quests)
     persistPending(s) -- survives /reload or a crash mid-sequence
     applyHide(s)
+    hideTracking(s)
     if needAlphaFallback(s) then applyAlphaFallback(s) end
 
     -- 2. hide UI
@@ -357,6 +440,7 @@ function Core.Restore()
             failed[#failed + 1] = name
         end
     end
+    for name in pairs(restoreTracking(s)) do failed[#failed + 1] = "tracking " .. name end
     if s.uiHidden and not UIParent:IsShown() then
         safe(UIParent.Show, UIParent)
         if not UIParent:IsShown() then failed[#failed + 1] = "UIParent" end
@@ -487,12 +571,19 @@ function Core.Debug()
     dump(Config.alphaCVars)
     dump(Config.cameraCVars)
     add(("%d of %d candidate CVars exist"):format(present, total))
+    for _, name in ipairs(Config.trackingFilters or {}) do
+        local active = Core.GetTracking(name)
+        add(("  tracking %s = %s"):format(name, active == nil and "MISSING" or tostring(active)))
+    end
 
     local function has(v) return v ~= nil and "yes" or "NO" end
     add(("api: C_CVar.GetCVar=%s C_CVar.SetCVar=%s GetCameraZoom=%s CameraZoomIn=%s CameraZoomOut=%s Screenshot=%s C_NamePlate.GetNamePlates=%s issecretvalue=%s"):format(
         has(C_CVar and C_CVar.GetCVar), has(C_CVar and C_CVar.SetCVar), has(GetCameraZoom),
         has(CameraZoomIn), has(CameraZoomOut), has(Screenshot),
         has(C_NamePlate and C_NamePlate.GetNamePlates), has(issecretvalue)))
+    add(("api: C_Minimap.GetTrackingFilter=%s C_Minimap.SetTracking=%s Enum.MinimapTrackingFilter=%s"):format(
+        has(C_Minimap and C_Minimap.GetTrackingFilter), has(C_Minimap and C_Minimap.SetTracking),
+        has(Enum and Enum.MinimapTrackingFilter)))
     local zoomOk, zoom = pcall(GetCameraZoom)
     add(("camera zoom = %s, state = %s, pending restore = %s"):format(
         zoomOk and tostring(zoom) or "error", Core.state, db().pendingRestore and "yes" or "no"))
@@ -558,8 +649,11 @@ function Core.OnEvent(event, ...)
                     left[name] = orig
                 end
             end
+            local leftTracking = restoreTracking(session)
             local zoom = cameraPending(session) and session.zoom or nil
-            db().pendingRestore = (next(left) or zoom) and { cvars = left, zoom = zoom } or nil
+            db().pendingRestore = (next(left) or next(leftTracking) or zoom)
+                and { cvars = left, tracking = next(leftTracking) and leftTracking or nil, zoom = zoom }
+                or nil
         end
     end
 end
